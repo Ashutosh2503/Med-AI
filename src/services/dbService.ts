@@ -151,14 +151,21 @@ export const dbService = {
       }
     }
 
-    // Local Storage save
-    const incidents = this.getAllLocalIncidents();
-    incidents.unshift(fullIncident);
-    localStorage.setItem(INCIDENTS_KEY, JSON.stringify(incidents));
+    // Local Storage save with quota safety
+    try {
+      const incidents = this.getAllLocalIncidents();
+      incidents.unshift(fullIncident);
+      // Cap at 60 items to stay safely within LocalStorage quota
+      if (incidents.length > 60) incidents.length = 60;
+      this.safeSetItem(INCIDENTS_KEY, JSON.stringify(incidents));
 
-    const guidances = this.getAllLocalGuidance();
-    guidances.unshift(fullGuidance);
-    localStorage.setItem(GUIDANCE_KEY, JSON.stringify(guidances));
+      const guidances = this.getAllLocalGuidance();
+      guidances.unshift(fullGuidance);
+      if (guidances.length > 60) guidances.length = 60;
+      this.safeSetItem(GUIDANCE_KEY, JSON.stringify(guidances));
+    } catch (err) {
+      console.warn('LocalStorage save error:', err);
+    }
 
     return { incident: fullIncident, guidance: fullGuidance };
   },
@@ -297,6 +304,25 @@ export const dbService = {
       return raw ? JSON.parse(raw) : [];
     } catch {
       return [];
+    }
+  },
+
+  safeSetItem(key: string, value: string): void {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e: any) {
+      if (e?.name === 'QuotaExceededError' || e?.code === 22) {
+        console.warn('LocalStorage quota exceeded. Pruning old records...');
+        try {
+          const incs = this.getAllLocalIncidents().slice(0, 20);
+          localStorage.setItem(INCIDENTS_KEY, JSON.stringify(incs));
+          const guids = this.getAllLocalGuidance().slice(0, 20);
+          localStorage.setItem(GUIDANCE_KEY, JSON.stringify(guids));
+          localStorage.setItem(key, value);
+        } catch {
+          // If still fails, silent fallback
+        }
+      }
     }
   },
 };

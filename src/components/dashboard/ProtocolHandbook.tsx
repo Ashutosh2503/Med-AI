@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Heart, 
   Activity, 
@@ -222,13 +222,37 @@ export const ProtocolHandbook: React.FC<ProtocolHandbookProps> = ({
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  // Stop speech when modal closes or unmounts, and support ESC key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [isOpen, onClose]);
+
+  const currentProtocol = useMemo(
+    () => FIRST_AID_PROTOCOLS.find((p) => p.id === selectedId) || FIRST_AID_PROTOCOLS[0],
+    [selectedId]
+  );
+
+  const filtered = useMemo(
+    () =>
+      activeCategory === 'all'
+        ? FIRST_AID_PROTOCOLS
+        : FIRST_AID_PROTOCOLS.filter((p) => p.category === activeCategory),
+    [activeCategory]
+  );
+
   if (!isOpen) return null;
-
-  const currentProtocol = FIRST_AID_PROTOCOLS.find((p) => p.id === selectedId) || FIRST_AID_PROTOCOLS[0];
-
-  const filtered = activeCategory === 'all'
-    ? FIRST_AID_PROTOCOLS
-    : FIRST_AID_PROTOCOLS.filter((p) => p.category === activeCategory);
 
   const toggleSpeech = () => {
     if (!('speechSynthesis' in window)) return;

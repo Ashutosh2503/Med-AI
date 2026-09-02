@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   History, 
   Calendar, 
@@ -9,7 +9,14 @@ import {
   FileText, 
   ChevronRight,
   ShieldCheck,
-  Globe
+  Search,
+  Download,
+  Volume2,
+  VolumeX,
+  Printer,
+  Copy,
+  Check,
+  Filter
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../ui/Card';
@@ -17,6 +24,7 @@ import { SeverityBadge, Badge } from '../ui/Badge';
 import { IncidentReport, GuidanceData, LanguageCode } from '../../types';
 import { dbService } from '../../services/dbService';
 import { useAuth } from '../../context/AuthContext';
+import { ExportModal } from './ExportModal';
 
 export interface HistoryViewProps {
   language: LanguageCode;
@@ -36,6 +44,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const [incidents, setIncidents] = useState<Array<IncidentReport & { guidance?: GuidanceData }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedItem, setSelectedItem] = useState<(IncidentReport & { guidance?: GuidanceData }) | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [severityFilter, setSeverityFilter] = useState<string>('all');
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [hasCopied, setHasCopied] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -43,6 +56,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       try {
         const data = await dbService.getIncidents(userId);
         setIncidents(data);
+        if (data.length > 0 && !selectedItem) {
+          setSelectedItem(data[0]);
+        }
       } catch (err) {
         console.error('Failed to load incidents:', err);
       } finally {
@@ -50,7 +66,63 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       }
     }
     loadData();
+
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
   }, [userId]);
+
+  // Memoized search and filter for high-performance rendering
+  const filteredIncidents = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    return incidents.filter((item) => {
+      const matchesSearch = !q || 
+        item.incident_type.toLowerCase().includes(q) ||
+        (item.input_text && item.input_text.toLowerCase().includes(q)) ||
+        (item.guidance?.immediate_actions?.some((a) => a.toLowerCase().includes(q)));
+      
+      const matchesSeverity = severityFilter === 'all' || item.severity === severityFilter;
+
+      return matchesSearch && matchesSeverity;
+    });
+  }, [incidents, searchQuery, severityFilter]);
+
+  const toggleSpeech = () => {
+    if (!('speechSynthesis' in window) || !selectedItem?.guidance) return;
+
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    const g = selectedItem.guidance;
+    const text = `${selectedItem.incident_type}. Severity level: ${selectedItem.severity}. Immediate First Aid actions: ${g.immediate_actions.join('. ')}. Critical things to avoid: ${g.avoid_actions.join('. ')}. Escalation guidance: ${g.escalation_conditions || 'None'}.`;
+
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = isHindi ? 'hi-IN' : 'en-US';
+    utter.rate = 0.95;
+    utter.onend = () => setIsSpeaking(false);
+    utter.onerror = () => setIsSpeaking(false);
+
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utter);
+  };
+
+  const copyAdvice = () => {
+    if (!selectedItem?.guidance) return;
+    const g = selectedItem.guidance;
+    const text = `Med AI Triage Record - ${selectedItem.incident_type} (${selectedItem.severity.toUpperCase()})\nDate: ${new Date(selectedItem.created_at).toLocaleString()}\n\nImmediate Actions:\n${g.immediate_actions.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\nAvoid:\n${g.avoid_actions.map((a) => `• ${a}`).join('\n')}\n\nEscalation: ${g.escalation_conditions || 'N/A'}`;
+    navigator.clipboard.writeText(text);
+    setHasCopied(true);
+    setTimeout(() => setHasCopied(false), 2000);
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -76,6 +148,17 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               : 'Audit trail of past incident triages and generated guidance protocols.'}
           </p>
         </div>
+
+        {incidents.length > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            leftIcon={<Download className="w-4 h-4 text-emerald-600" />}
+            onClick={() => setIsExportModalOpen(true)}
+          >
+            {isHindi ? 'डेटा निर्यात' : 'Export Audit Log'}
+          </Button>
+        )}
       </div>
 
       {/* RLS Privacy Note */}
@@ -90,6 +173,37 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         </div>
         <Badge variant="success" size="sm">Private Record</Badge>
       </div>
+
+      {/* Search & Filter Controls */}
+      {incidents.length > 0 && (
+        <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-white p-3 rounded-xl border border-slate-200">
+          <div className="relative w-full sm:w-72">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={isHindi ? 'लक्षण या घटना खोजें...' : 'Search incidents or symptoms...'}
+              className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto w-full sm:w-auto justify-end">
+            <Filter className="w-3.5 h-3.5 text-slate-400" />
+            <select
+              value={severityFilter}
+              onChange={(e) => setSeverityFilter(e.target.value)}
+              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+            >
+              <option value="all">{isHindi ? 'सभी गंभीरता स्तर' : 'All Severities'}</option>
+              <option value="low">Low</option>
+              <option value="moderate">Moderate</option>
+              <option value="high">High</option>
+              <option value="emergency">Emergency</option>
+            </select>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="p-12 text-center text-slate-500 space-y-2">
@@ -110,11 +224,20 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               : 'When you perform an incident triage in the workspace, the full audit record and advice will appear here.'}
           </p>
         </Card>
+      ) : filteredIncidents.length === 0 ? (
+        <Card className="text-center p-8 bg-slate-50 border border-slate-200">
+          <p className="text-xs text-slate-500">
+            {isHindi ? 'कोई परिणाम नहीं मिला। कृपया अलग खोज शब्द का प्रयास करें।' : 'No matching incident records for the search filter.'}
+          </p>
+          <Button size="sm" variant="outline" className="mt-3 text-xs" onClick={() => { setSearchQuery(''); setSeverityFilter('all'); }}>
+            Reset Filters
+          </Button>
+        </Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* List (5 cols) */}
           <div className="lg:col-span-5 space-y-3">
-            {incidents.map((inc) => {
+            {filteredIncidents.map((inc) => {
               const isSelected = selectedItem?.id === inc.id;
               const dateStr = new Date(inc.created_at).toLocaleDateString(undefined, {
                 month: 'short',
@@ -126,7 +249,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               return (
                 <div
                   key={inc.id}
-                  onClick={() => setSelectedItem(inc)}
+                  onClick={() => {
+                    setSelectedItem(inc);
+                    if (isSpeaking) {
+                      window.speechSynthesis.cancel();
+                      setIsSpeaking(false);
+                    }
+                  }}
                   className={`p-4 rounded-xl border transition-all cursor-pointer ${
                     isSelected
                       ? 'border-emerald-600 bg-emerald-50/40 shadow-xs'
@@ -178,6 +307,37 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   <CardDescription>
                     {selectedItem.input_text ? `Reported: "${selectedItem.input_text}"` : 'Image-based observation'}
                   </CardDescription>
+
+                  {/* Actions toolbar */}
+                  <div className="flex items-center gap-2 pt-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      leftIcon={isSpeaking ? <VolumeX className="w-3.5 h-3.5 text-amber-600" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-600" />}
+                      onClick={toggleSpeech}
+                      className={isSpeaking ? 'bg-amber-50 border-amber-300 text-xs' : 'text-xs'}
+                    >
+                      {isSpeaking ? 'Stop Audio' : 'Listen'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      leftIcon={hasCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-500" />}
+                      onClick={copyAdvice}
+                      className="text-xs"
+                    >
+                      {hasCopied ? 'Copied' : 'Copy Advice'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      leftIcon={<Printer className="w-3.5 h-3.5 text-slate-500" />}
+                      onClick={handlePrint}
+                      className="text-xs"
+                    >
+                      Print
+                    </Button>
+                  </div>
                 </CardHeader>
 
                 <CardContent className="space-y-4 pt-4 text-xs sm:text-sm">
@@ -235,6 +395,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        incidents={incidents}
+        language={language}
+      />
     </div>
   );
 };

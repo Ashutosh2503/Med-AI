@@ -33,6 +33,7 @@ import { LanguageCode, GuidanceData, EmergencyContact } from '../../types';
 import { aiService, PRESET_DEMO_SCENARIOS } from '../../services/aiService';
 import { dbService } from '../../services/dbService';
 import { useAuth } from '../../context/AuthContext';
+import { compressImage } from '../../lib/imageCompressor';
 
 export interface DashboardViewProps {
   language: LanguageCode;
@@ -92,30 +93,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     };
   }, []);
 
-  // File Upload Handlers
-  const handleFileSelect = (file: File) => {
+  // File Upload Handlers with Automatic Client Compression
+  const handleFileSelect = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       setErrorMessage(isHindi ? 'कृपया केवल चित्र फ़ाइल (PNG, JPG, WEBP) अपलोड करें।' : 'Please upload a valid image file (PNG, JPG, WEBP).');
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setErrorMessage(isHindi ? 'फ़ाइल का आकार 10MB से कम होना चाहिए।' : 'Image size must be less than 10MB.');
+    if (file.size > 15 * 1024 * 1024) {
+      setErrorMessage(isHindi ? 'फ़ाइल का आकार 15MB से कम होना चाहिए।' : 'Image size must be less than 15MB.');
       return;
     }
 
     setErrorMessage(null);
     setSelectedImageName(file.name);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      if (e.target?.result) {
-        setSelectedImage(e.target.result as string);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImage(file, 960, 960, 0.82);
+      setSelectedImage(compressed);
+    } catch (err) {
+      console.warn('Image processing fallback:', err);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target?.result) {
+          setSelectedImage(e.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
-  const handleCameraCapture = (base64Image: string, fileName: string) => {
-    setSelectedImage(base64Image);
+  const handleCameraCapture = async (base64Image: string, fileName: string) => {
+    try {
+      const compressed = await compressImage(base64Image, 960, 960, 0.82);
+      setSelectedImage(compressed);
+    } catch {
+      setSelectedImage(base64Image);
+    }
     setSelectedImageName(fileName);
     setErrorMessage(null);
   };

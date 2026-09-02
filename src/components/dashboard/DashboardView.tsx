@@ -28,6 +28,7 @@ import { Notice } from '../ui/Notice';
 import { AlertConfirmModal } from '../alerts/AlertConfirmModal';
 import { CameraCaptureModal } from './CameraCaptureModal';
 import { EmergencySpeedDial } from './EmergencySpeedDial';
+import { ProtocolHandbook, ProtocolGuide } from './ProtocolHandbook';
 import { LanguageCode, GuidanceData, EmergencyContact } from '../../types';
 import { aiService, PRESET_DEMO_SCENARIOS } from '../../services/aiService';
 import { dbService } from '../../services/dbService';
@@ -56,6 +57,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [selectedImageName, setSelectedImageName] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+  const [isHandbookOpen, setIsHandbookOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Audio Guidance TTS State
@@ -260,6 +262,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         {/* Language & Actions */}
         <div className="flex items-center gap-2 self-start sm:self-auto">
+          <Button
+            size="sm"
+            variant="outline"
+            leftIcon={<HelpCircle className="w-3.5 h-3.5 text-emerald-600" />}
+            onClick={() => setIsHandbookOpen(true)}
+            className="text-xs"
+          >
+            {isHindi ? 'प्राथमिक चिकित्सा संदर्भ' : 'First-Aid Protocols'}
+          </Button>
+
           <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1 shadow-xs">
             <Globe className="w-4 h-4 text-slate-400 ml-1.5 mr-1" />
             <button
@@ -680,6 +692,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         isOpen={isCameraModalOpen}
         onClose={() => setIsCameraModalOpen(false)}
         onCapture={handleCameraCapture}
+        language={language}
+      />
+
+      {/* Campus First-Aid Protocol Handbook */}
+      <ProtocolHandbook
+        isOpen={isHandbookOpen}
+        onClose={() => setIsHandbookOpen(false)}
         language={language}
       />
 

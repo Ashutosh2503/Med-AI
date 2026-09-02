@@ -15,13 +15,19 @@ import {
   Globe,
   BellRing,
   HelpCircle,
-  Clock
+  Clock,
+  Camera,
+  Volume2,
+  VolumeX,
+  Printer
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../ui/Card';
 import { Badge, SeverityBadge } from '../ui/Badge';
 import { Notice } from '../ui/Notice';
 import { AlertConfirmModal } from '../alerts/AlertConfirmModal';
+import { CameraCaptureModal } from './CameraCaptureModal';
+import { EmergencySpeedDial } from './EmergencySpeedDial';
 import { LanguageCode, GuidanceData, EmergencyContact } from '../../types';
 import { aiService, PRESET_DEMO_SCENARIOS } from '../../services/aiService';
 import { dbService } from '../../services/dbService';
@@ -49,7 +55,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedImageName, setSelectedImageName] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Audio Guidance TTS State
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   // AI Guidance & Process State
   const [isLoading, setIsLoading] = useState(false);
@@ -71,6 +81,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     loadPrimaryContact();
   }, [userId]);
 
+  // Clean up speech on unmount
+  useEffect(() => {
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
   // File Upload Handlers
   const handleFileSelect = (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -91,6 +110,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleCameraCapture = (base64Image: string, fileName: string) => {
+    setSelectedImage(base64Image);
+    setSelectedImageName(fileName);
+    setErrorMessage(null);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -133,6 +158,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setErrorMessage(null);
     setIsLoading(true);
     setAlertSuccessBanner(false);
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    }
 
     try {
       const guidance = await aiService.analyzeIncident({
@@ -171,6 +200,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setErrorMessage(null);
     setActiveGuidance(null);
     setAlertSuccessBanner(false);
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    }
+  };
+
+  // Hands-Free TTS Speech Synthesis
+  const toggleSpeechGuidance = () => {
+    if (!('speechSynthesis' in window) || !activeGuidance) return;
+
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    const textToSpeak = `${activeGuidance.incident_type}. Immediate Actions: ${activeGuidance.immediate_actions.join('. ')}. Avoid doing: ${activeGuidance.avoid_actions.join('. ')}. ${activeGuidance.warning}`;
+    
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    utterance.lang = isHindi ? 'hi-IN' : 'en-US';
+    utterance.rate = 0.95;
+
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handlePrintGuidance = () => {
+    window.print();
   };
 
   // Quick Preset Samples for Hackathon Demo
@@ -232,13 +292,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </Notice>
       )}
 
-      {/* Safety Notice Banner */}
+      {/* Safety Notice Banner & Speed Dial */}
       <Notice variant="warning">
         <strong>{isHindi ? 'सुरक्षा सूचना: ' : 'Safety Notice: '}</strong>
         {isHindi
           ? 'यदि व्यक्ति बेहोश है, अत्यधिक रक्तस्राव हो रहा है, या सांस लेने में कठिनाई है, तो तुरंत 911 / 112 पर कॉल करें।'
           : 'If the person is unconscious, has severe uncontrolled bleeding, or difficulty breathing, call emergency services (911/112) immediately.'}
       </Notice>
+
+      {/* Emergency Quick-Dial & GPS Access */}
+      <EmergencySpeedDial language={language} />
 
       {/* Main Grid: Input Form (Left) & Live Triage Preview (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -315,11 +378,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
 
-              {/* Image Upload Component */}
+              {/* Image Upload / Live Camera Component */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                  {isHindi ? 'छवि जोड़ें (वैकल्पिक / Optional Image)' : 'Visual Evidence (Optional Image)'}
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    {isHindi ? 'छवि जोड़ें (वैकल्पिक / Optional Image)' : 'Visual Evidence (Optional Image)'}
+                  </label>
+                  {!selectedImage && (
+                    <button
+                      type="button"
+                      onClick={() => setIsCameraModalOpen(true)}
+                      className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-900 font-semibold cursor-pointer"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>{isHindi ? 'कैमरा से फोटो लें' : 'Snap Photo (Camera)'}</span>
+                    </button>
+                  )}
+                </div>
 
                 {!selectedImage ? (
                   <div
@@ -503,6 +578,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       ? 'सिस्टम द्वारा समझी गई स्थिति और आवश्यक तात्कालिक उपाय।'
                       : 'Structured containment instructions for minor campus situations.'}
                   </CardDescription>
+
+                  {/* Audio Read-Out and Print Quick Action Toolbar */}
+                  <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <button
+                      id="listen-guidance-btn"
+                      type="button"
+                      onClick={toggleSpeechGuidance}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                        isSpeaking
+                          ? 'bg-amber-100 text-amber-800 animate-pulse border border-amber-300'
+                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      }`}
+                    >
+                      {isSpeaking ? <VolumeX className="w-4 h-4 text-amber-600" /> : <Volume2 className="w-4 h-4 text-emerald-600" />}
+                      <span>{isSpeaking ? (isHindi ? 'आवाज़ रोकें (Stop Audio)' : 'Stop Audio Guidance') : (isHindi ? 'निर्देश सुनें (Audio Read-Aloud)' : 'Listen (Voice Guidance)')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handlePrintGuidance}
+                      className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                      title={isHindi ? 'प्रिंट करें' : 'Print Protocol'}
+                    >
+                      <Printer className="w-4 h-4" />
+                      <span className="hidden sm:inline">{isHindi ? 'प्रिंट करें' : 'Print / PDF'}</span>
+                    </button>
+                  </div>
                 </CardHeader>
 
                 <CardContent className="space-y-4 pt-4 text-sm">
@@ -572,6 +674,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Live Camera Snapshot Modal */}
+      <CameraCaptureModal
+        isOpen={isCameraModalOpen}
+        onClose={() => setIsCameraModalOpen(false)}
+        onCapture={handleCameraCapture}
+        language={language}
+      />
 
       {/* Explicit Confirmation Alert Modal */}
       {activeGuidance && (

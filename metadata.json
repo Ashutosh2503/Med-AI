@@ -1,0 +1,6 @@
+{
+  "name": "Med AI",
+  "description": "Multimodal AI-powered health and safety companion for minor campus medical emergencies and physical safety situations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
